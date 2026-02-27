@@ -28,7 +28,7 @@ func main() {
 	} else if choixPrincipal == "B" {
 		menuMultiFichiers()
 	} else {
-		fmt.Println("Ecris bien")
+		fmt.Println("En majuscule :)")
 	}
 }
 
@@ -283,60 +283,104 @@ func ecrireFichier(chemin string, lignes []string) {
 
 func menuWikipedia() {
 
-	fmt.Print("Nom article : ")
-	var article string
-	fmt.Scanln(&article)
+	var articles []string
+	reader := bufio.NewReader(os.Stdin)
 
-	url := "https://fr.wikipedia.org/wiki/" + article
+	for {
+		fmt.Print("Nom article : ")
+		article, _ := reader.ReadString('\n')
+		article = strings.TrimSpace(article)
+		article = strings.ReplaceAll(article, " ", "_")
 
-	reponse, erreur := http.Get(url)
-	if erreur != nil {
-		fmt.Println("Le dl ne fonctionne pas")
-		return
-	}
-	defer reponse.Body.Close()
-
-	document, erreur := goquery.NewDocumentFromReader(reponse.Body)
-	if erreur != nil {
-		fmt.Println("Y'a pas")
-		return
-	}
-
-	var paragraphes []string
-
-	document.Find("p").Each(func(index int, element *goquery.Selection) {
-		texte := element.Text()
-		if strings.TrimSpace(texte) != "" {
-			paragraphes = append(paragraphes, texte)
+		if article == "" {
+			fmt.Println("Nom invalide")
+			continue
 		}
-	})
 
-	totalMots := 0
-	for i := 0; i < len(paragraphes); i++ {
-		mots := strings.Fields(paragraphes[i])
-		totalMots = totalMots + len(mots)
+		articles = append(articles, article)
+
+		fmt.Print("Analyser un autre article ? (oui/non) : ")
+		choix, _ := reader.ReadString('\n')
+		choix = strings.TrimSpace(choix)
+
+		if choix != "oui" {
+			break
+		}
 	}
 
-	nombreLignes := len(paragraphes)
+	for i := 0; i < len(articles); i++ {
 
-	fmt.Println("Nb de paragraphes :", nombreLignes)
-	fmt.Println("Nb total de mots :", totalMots)
+		article := articles[i]
+		url := "https://fr.wikipedia.org/wiki/" + article
+		fmt.Println("Téléchargement :", url)
 
-	os.MkdirAll("out", os.ModePerm)
+		req, err := http.NewRequest("GET", url, nil)
+		if err != nil {
+			fmt.Println("Erreur requête :", err)
+			continue
+		}
+		req.Header.Set("User-Agent", "Mozilla/5.0")
 
-	nomFichier := "out/wiki_" + article + ".txt"
+		client := &http.Client{}
+		reponse, err := client.Do(req)
+		if err != nil {
+			fmt.Println("Erreur HTTP :", err)
+			continue
+		}
 
-	var contenu []string
-	contenu = append(contenu, "Article : "+article)
-	contenu = append(contenu, "Nb paragraphes : "+strconv.Itoa(nombreLignes))
-	contenu = append(contenu, "Nb mots : "+strconv.Itoa(totalMots))
-	contenu = append(contenu, "Contenu : ")
+		if reponse.StatusCode != 200 {
+			fmt.Println("Article non trouvé :", article)
+			reponse.Body.Close()
+			continue
+		}
 
-	for i := 0; i < len(paragraphes); i++ {
-		contenu = append(contenu, paragraphes[i])
+		document, err := goquery.NewDocumentFromReader(reponse.Body)
+		reponse.Body.Close()
+		if err != nil {
+			fmt.Println("Erreur HTML :", err)
+			continue
+		}
+
+		var paragraphes []string
+
+		document.Find("div.mw-parser-output > p").Each(func(index int, element *goquery.Selection) {
+			texte := strings.TrimSpace(element.Text())
+			if texte != "" {
+				paragraphes = append(paragraphes, texte)
+			}
+		})
+
+		if len(paragraphes) == 0 {
+			fmt.Println("Aucun paragraphe trouvé pour", article)
+			continue
+		}
+
+		totalMots := 0
+		for j := 0; j < len(paragraphes); j++ {
+			mots := strings.Fields(paragraphes[j])
+			totalMots += len(mots)
+		}
+
+		fmt.Println("Article :", article)
+		fmt.Println("Nb paragraphes :", len(paragraphes))
+		fmt.Println("Nb mots :", totalMots)
+
+		os.MkdirAll("out", os.ModePerm)
+
+		nomFichier := "out/wiki_" + article + ".txt"
+
+		var contenu []string
+		contenu = append(contenu, "Article : "+article)
+		contenu = append(contenu, "Nb paragraphes : "+strconv.Itoa(len(paragraphes)))
+		contenu = append(contenu, "Nb mots : "+strconv.Itoa(totalMots))
+		contenu = append(contenu, "Contenu : ")
+
+		for j := 0; j < len(paragraphes); j++ {
+			contenu = append(contenu, paragraphes[j])
+		}
+
+		ecrireFichier(nomFichier, contenu)
+
+		fmt.Println("Fichier généré :", nomFichier)
 	}
-
-	ecrireFichier(nomFichier, contenu)
-
-	fmt.Println("Fichier généré :", nomFichier)
 }
